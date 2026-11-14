@@ -1,5 +1,7 @@
 /* gen - actual generation (writing) of flex scanners */
 
+/* SPDX-License-Identifier: BSD-3-Clause-flex */
+
 /*  Copyright (c) 1990 The Regents of the University of California. */
 /*  All rights reserved. */
 
@@ -43,7 +45,7 @@ struct yy_trans_info {int32_t yy_verify; int32_t yy_nxt;};
 
 /* declare functions that have forward references */
 
-void	genecs(void);
+static void genecs(void);
 
 struct packtype_t *optimize_pack(size_t sz)
 {
@@ -58,6 +60,12 @@ struct packtype_t *optimize_pack(size_t sz)
 	}
 	return &out;
 }
+
+/* Almost everything is done in terms of arrays starting at 1, so provide
+ * a null entry for the zero element of all C arrays.  (The exception
+ * to this is that the fast table representation generally uses the
+ * 0 elements of its arrays, too.)
+ */
 
 /** Make the table for possible eol matches.
  *  @return the newly allocated rule_can_match_eol table
@@ -237,7 +245,7 @@ static struct yytbl_data *mkssltbl (void)
 
 /* genctbl - generates full speed compressed transition table */
 
-void genctbl (void)
+static void genctbl(void)
 {
 	int i;
 	int     end_of_buffer_action = num_rules + 1;
@@ -315,7 +323,6 @@ void genctbl (void)
 	footprint += sizeof(struct yy_trans_info) * (tblend + 2 + 1);
 
 	out_dec ("m4_define([[M4_HOOK_STARTTABLE_SIZE]], [[%d]])", lastsc * 2 + 1);
-
 	if (gentables) {
 		outn ("m4_define([[M4_HOOK_STARTTABLE_BODY]], [[m4_dnl");
 		for (i = 0; i <= lastsc * 2; ++i)
@@ -358,7 +365,7 @@ static struct yytbl_data *mkecstbl (void)
 
 /* Generate equivalence-class tables. */
 
-void genecs (void)
+static void genecs(void)
 {
 	int ch, row;
 	int     numrows;
@@ -376,7 +383,7 @@ void genecs (void)
 	footprint += sizeof(YY_CHAR) * ctrl.csize;
 
 	if (env.trace) {
-		fputs (_("\n\nEquivalence Classes:\n\n"), stderr);
+		fputs ("\n\nEquivalence Classes:\n\n", stderr);
 
 		/* Print in 8 columns */
 		numrows = ctrl.csize / 8;
@@ -398,7 +405,7 @@ void genecs (void)
  * you should call mkecstbl() after this.
  */
 
-struct yytbl_data *mkftbl (void)
+static struct yytbl_data *mkftbl(void)
 {
 	int i;
 	int     end_of_buffer_action = num_rules + 1;
@@ -422,7 +429,7 @@ struct yytbl_data *mkftbl (void)
 		tdata[i] = anum;
 
 		if (env.trace && anum)
-			fprintf (stderr, _("state # %d accepts: [%d]\n"),
+			fprintf (stderr, "state # %d accepts: [%d]\n",
 				 i, anum);
 	}
 
@@ -432,7 +439,7 @@ struct yytbl_data *mkftbl (void)
 
 /* genftbl - generate full transition table */
 
-void genftbl (void)
+static void genftbl(void)
 {
 	int i;
 	int     end_of_buffer_action = num_rules + 1;
@@ -451,7 +458,7 @@ void genftbl (void)
 		mkdata (anum);
 
 		if (env.trace && anum)
-			fprintf (stderr, _("state # %d accepts: [%d]\n"),
+			fprintf (stderr, "state # %d accepts: [%d]\n",
 				 i, anum);
 	}
 
@@ -469,7 +476,7 @@ void genftbl (void)
 
 /* gentabs - generate data statements for the transition tables */
 
-void gentabs (void)
+static void gentabs(void)
 {
 	int     sz, i, j, k, *accset, nacc, *acc_array, total_states;
 	int     end_of_buffer_action = num_rules + 1;
@@ -530,7 +537,7 @@ void gentabs (void)
 
 				if (env.trace)
 					fprintf (stderr,
-						 _("state # %d accepts: "),
+						 "state # %d accepts: ",
 						 i);
 
 				for (k = 1; k <= nacc; ++k) {
@@ -579,7 +586,9 @@ void gentabs (void)
 		if (tablesext) {
 			yytbl_data_compress (yyacclist_tbl);
 			if (yytbl_data_fwrite (&tableswr, yyacclist_tbl) < 0)
-				flexerror (_("Could not write yyacclist_tbl"));
+				/* TRANSLATORS: %s is the name of a table in
+				   the generated scanner. */
+				lerr (_("Could not write %s"), "yyacclist_tbl");
 			yytbl_data_destroy (yyacclist_tbl);
 			yyacclist_tbl = NULL;
 		}
@@ -635,7 +644,7 @@ void gentabs (void)
 		yyacc_data[yyacc_curr++] = acc_array[i];
 
 		if (!reject && env.trace && acc_array[i])
-			fprintf (stderr, _("state # %d accepts: [%d]\n"),
+			fprintf (stderr, "state # %d accepts: [%d]\n",
 				 i, acc_array[i]);
 	}
 
@@ -656,7 +665,7 @@ void gentabs (void)
 	if (tablesext) {
 		yytbl_data_compress (yyacc_tbl);
 		if (yytbl_data_fwrite (&tableswr, yyacc_tbl) < 0)
-			flexerror (_("Could not write yyacc_tbl"));
+			lerr (_("Could not write %s"), "yyacc_tbl");
 	}
 	yytbl_data_destroy (yyacc_tbl);
 	yyacc_tbl = NULL;
@@ -671,7 +680,7 @@ void gentabs (void)
 			tbl = mkecstbl ();
 			yytbl_data_compress (tbl);
 			if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-				flexerror (_("Could not write ecstbl"));
+				lerr (_("Could not write %s"), "ecstbl");
 			yytbl_data_destroy (tbl);
 			tbl = 0;
 		}
@@ -691,7 +700,7 @@ void gentabs (void)
 			   sizeof (flex_int32_t));
 
 		if (env.trace)
-			fputs (_("\n\nMeta-Equivalence Classes:\n"),
+			fputs ("\n\nMeta-Equivalence Classes:\n",
 			       stderr);
 		out_dec ("m4_define([[M4_HOOK_MECSTABLE_SIZE]], [[%d]])", numecs+1);
 		outn ("m4_define([[M4_HOOK_MECSTABLE_BODY]], [[m4_dnl");
@@ -711,7 +720,7 @@ void gentabs (void)
 		if (tablesext) {
 			yytbl_data_compress (yymeta_tbl);
 			if (yytbl_data_fwrite (&tableswr, yymeta_tbl) < 0)
-				flexerror (_("Could not write yymeta_tbl"));
+				lerr (_("Could not write %s"), "yymeta_tbl");
 		}
 		yytbl_data_destroy (yymeta_tbl);
 		yymeta_tbl = NULL;
@@ -771,7 +780,7 @@ void gentabs (void)
 	if (tablesext) {
 		yytbl_data_compress (yybase_tbl);
 		if (yytbl_data_fwrite (&tableswr, yybase_tbl) < 0)
-			flexerror (_("Could not write yybase_tbl"));
+			lerr (_("Could not write %s"), "yybase_tbl");
 	}
 	yytbl_data_destroy (yybase_tbl);
 	yybase_tbl = NULL;
@@ -802,7 +811,7 @@ void gentabs (void)
 	if (tablesext) {
 		yytbl_data_compress (yydef_tbl);
 		if (yytbl_data_fwrite (&tableswr, yydef_tbl) < 0)
-			flexerror (_("Could not write yydef_tbl"));
+			lerr (_("Could not write %s"), "yydef_tbl");
 	}
 	yytbl_data_destroy (yydef_tbl);
 	yydef_tbl = NULL;
@@ -841,7 +850,7 @@ void gentabs (void)
 	if (tablesext) {
 		yytbl_data_compress (yynxt_tbl);
 		if (yytbl_data_fwrite (&tableswr, yynxt_tbl) < 0)
-			flexerror (_("Could not write yynxt_tbl"));
+			lerr (_("Could not write %s"), "yynxt_tbl");
 	}
 	yytbl_data_destroy (yynxt_tbl);
 	yynxt_tbl = NULL;
@@ -874,7 +883,7 @@ void gentabs (void)
 	if (tablesext) {
 		yytbl_data_compress (yychk_tbl);
 		if (yytbl_data_fwrite (&tableswr, yychk_tbl) < 0)
-			flexerror (_("Could not write yychk_tbl"));
+			lerr (_("Could not write %s"), "yychk_tbl");
 	}
 	yytbl_data_destroy (yychk_tbl);
 	yychk_tbl = NULL;
@@ -929,13 +938,13 @@ void make_tables (void)
 			tbl = mkctbl ();
 			yytbl_data_compress (tbl);
 			if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-				flexerror (_("Could not write ftbl"));
+				lerr (_("Could not write %s"), "ftbl");
 			yytbl_data_destroy (tbl);
 
 			tbl = mkssltbl ();
 			yytbl_data_compress (tbl);
 			if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-				flexerror (_("Could not write ssltbl"));
+				lerr (_("Could not write %s"), "ssltbl");
 			yytbl_data_destroy (tbl);
 			tbl = 0;
 
@@ -943,8 +952,7 @@ void make_tables (void)
 				tbl = mkecstbl ();
 				yytbl_data_compress (tbl);
 				if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-					flexerror (_
-						   ("Could not write ecstbl"));
+					lerr (_("Could not write %s"), "ecstbl");
 				yytbl_data_destroy (tbl);
 				tbl = 0;
 			}
@@ -962,7 +970,7 @@ void make_tables (void)
 			ptype = optimize_pack(tbl->td_lolen);
 			out_str ("m4_define([[M4_HOOK_ACCEPT_TYPE]], [[%s]])", ptype->name);
 			if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-				flexerror (_("Could not write ftbl"));
+				lerr (_("Could not write %s"), "ftbl");
 			yytbl_data_destroy (tbl);
 			tbl = 0;
 
@@ -970,15 +978,15 @@ void make_tables (void)
 				tbl = mkecstbl ();
 				yytbl_data_compress (tbl);
 				if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-					flexerror (_
-						   ("Could not write ecstbl"));
+					lerr (_("Could not write %s"), "ecstbl");
 				yytbl_data_destroy (tbl);
 				tbl = 0;
 			}
 		}
 	}
-	else
+	else {
 		gentabs ();
+	}
 
 	snprintf(buf, sizeof(buf), "footprint: %ld bytes\n", footprint);
 	comment(buf);
@@ -1019,7 +1027,7 @@ void make_tables (void)
 			tbl = mkeoltbl ();
 			yytbl_data_compress (tbl);
 			if (yytbl_data_fwrite (&tableswr, tbl) < 0)
-				flexerror (_("Could not write eoltbl"));
+				lerr (_("Could not write %s"), "eoltbl");
 			yytbl_data_destroy (tbl);
 			tbl = 0;
 		}
@@ -1065,8 +1073,7 @@ void make_tables (void)
 			yytbl_data_compress (yynultrans_tbl);
 			if (yytbl_data_fwrite (&tableswr, yynultrans_tbl) <
 			    0)
-				flexerror (_
-					   ("Could not write yynultrans_tbl"));
+				lerr (_("Could not write %s"), "yynultrans_tbl");
 		}
 
 		if (yynultrans_tbl != NULL) {

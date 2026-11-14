@@ -1,5 +1,7 @@
 /* filter - postprocessing of flex output through filters */
 
+/* SPDX-License-Identifier: BSD-3-Clause-flex */
+
 /*  This file is part of flex. */
 
 /*  Redistribution and use in source and binary forms, with or without */
@@ -49,7 +51,8 @@ struct filter *filter_create_ext (struct filter *chain, const char *cmd,
 	/* allocate and initialize new filter */
 	f = calloc(sizeof(struct filter), 1);
 	if (!f)
-		flexerror(_("calloc failed (f) in filter_create_ext"));
+		lerr_fatal (_("memory allocation failed in %s()"),
+			    "filter_create_ext");
 	f->filter_func = NULL;
 	f->extra = NULL;
 	f->next = NULL;
@@ -67,7 +70,8 @@ struct filter *filter_create_ext (struct filter *chain, const char *cmd,
 	max_args = 8;
 	f->argv = malloc(sizeof(char *) * (size_t) (max_args + 1));
 	if (!f->argv)
-		flexerror(_("malloc failed (f->argv) in filter_create_ext"));
+		lerr_fatal (_("memory allocation failed in %s()"),
+			    "filter_create_ext");
 	f->argv[f->argc++] = cmd;
 
 	va_start (ap, cmd);
@@ -101,7 +105,8 @@ struct filter *filter_create_int (struct filter *chain,
 	/* allocate and initialize new filter */
 	f = calloc(sizeof(struct filter), 1);
 	if (!f)
-		flexerror(_("calloc failed in filter_create_int"));
+		lerr_fatal (_("memory allocation failed in %s()"),
+			    "filter_create_int");
 	f->next = NULL;
 	f->argc = 0;
 	f->argv = NULL;
@@ -162,7 +167,7 @@ bool filter_apply_chain (struct filter * chain)
 		close (pipes[1]);
 		clearerr(stdin);
 		if (dup2 (pipes[0], fileno (stdin)) == -1)
-			flexfatal (_("dup2(pipes[0],0)"));
+			lerr_fatal (_("%s failed"), "dup2(pipes[0],0)");
 		close (pipes[0]);
 		fseek (stdin, 0, SEEK_CUR);
 		ungetc(' ', stdin); /* still an evil hack, but one that works better */
@@ -173,7 +178,7 @@ bool filter_apply_chain (struct filter * chain)
 			int     r;
 
 			if ((r = chain->filter_func (chain)) == -1)
-				flexfatal (_("filter_func failed"));
+				lerr_fatal (_("%s failed"), "filter_func");
 			FLEX_EXIT (0);
 		}
 		else {
@@ -189,7 +194,7 @@ bool filter_apply_chain (struct filter * chain)
 	/* Parent */
 	close (pipes[0]);
 	if (dup2 (pipes[1], fileno (stdout)) == -1)
-		flexfatal (_("dup2(pipes[1],1)"));
+		lerr_fatal (_("%s failed"), "dup2(pipes[1],1)");
 	close (pipes[1]);
 	fseek (stdout, 0, SEEK_CUR);
 
@@ -241,12 +246,12 @@ int filter_tee_header (struct filter *chain)
 	 */
 
 	if ((to_cfd = dup (1)) == -1)
-		flexfatal (_("dup(1) failed"));
+		lerr_fatal (_("%s failed"), "dup(1)");
 	to_c = fdopen (to_cfd, "w");
 
 	if (write_header) {
 		if (freopen ((char *) chain->extra, "w", stdout) == NULL)
-			flexfatal (_("freopen(headerfilename) failed"));
+			lerr_fatal (_("%s failed"), "freopen(headerfilename)");
 
 		filter_apply_chain (chain->next);
 		to_h = stdout;
@@ -263,7 +268,7 @@ int filter_tee_header (struct filter *chain)
 		fputs ("m4_define([[M4_YY_NOOP]])[[]]m4_dnl\n", to_h);
 		fputs ("m4_define([[M4_YY_IN_HEADER]],[[]])m4_dnl\n", to_h);
 		fprintf (to_h,
-			 "m4_define( [[M4_YY_OUTFILE_NAME]],[[%s]])m4_dnl\n",
+			 "m4_define( [[M4_YY_OUTFILE_NAME]],[[[[%s]]]])m4_dnl\n",
 			 env.headerfilename != NULL ? env.headerfilename : "<stdout>");
 	}
 
@@ -272,7 +277,7 @@ int filter_tee_header (struct filter *chain)
 	fputs ("m4_changequote`'m4_dnl\n", to_c);
 	fputs ("m4_changequote([[,]])[[]]m4_dnl\n", to_c);
 	fputs ("m4_define([[M4_YY_NOOP]])[[]]m4_dnl\n", to_c);
-	fprintf (to_c, "m4_define( [[M4_YY_OUTFILE_NAME]],[[%s]])m4_dnl\n",
+	fprintf (to_c, "m4_define( [[M4_YY_OUTFILE_NAME]],[[[[%s]]]])m4_dnl\n",
 		 env.outfilename != NULL ? env.outfilename : "<stdout>");
 
 	while (fgets (buf, sizeof buf, stdin)) {
@@ -287,6 +292,12 @@ int filter_tee_header (struct filter *chain)
 		/* write a fake line number. It will get fixed by the linedir filter. */
 		if (ctrl.gen_line_dirs)
 			line_directive_out (to_h, NULL, 4000);
+
+		/* Leave header mode only after all input, including section 3,
+		 * has been copied, so code guarded by OUT_BEGIN_CODE() stays
+		 * out of the header.
+		 */
+		fputs ("m4_undefine([[M4_YY_IN_HEADER]])m4_dnl\n", to_h);
 		fflush (to_h);
 		if (ferror (to_h))
 			lerr (_("error writing output file %s"),
@@ -366,7 +377,8 @@ int filter_fix_linedirs (struct filter *chain)
 				s1 = fname;
 				s2 = filename;
 
-				while ((s2 - filename) < (MAXLINE - 1) && *s1) {
+				/* Leave room for a possible escape byte and the terminator. */
+				while ((s2 - filename) < (MAXLINE - 2) && *s1) {
 					/* Escape the backslash */
 					if (*s1 == '\\')
 						*s2++ = '\\';

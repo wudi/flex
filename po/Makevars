@@ -8,7 +8,7 @@ subdir = po
 top_builddir = ..
 
 # These options get passed to xgettext.
-XGETTEXT_OPTIONS = --language=C --keyword=_ --keyword=N_
+XGETTEXT_OPTIONS = --language=C --keyword=_ --keyword=N_ --add-comments=TRANSLATORS:
 
 # This is the copyright holder that gets inserted into the header of the
 # $(DOMAIN).pot file.  Set this to the copyright holder of the surrounding
@@ -69,7 +69,7 @@ MSGINIT_OPTIONS =
 # has changed.  Possible values are "yes" and "no".  Set this to no if
 # the POT file is checked in the repository and the version control
 # program ignores timestamps.
-PO_DEPENDS_ON_POT = yes
+PO_DEPENDS_ON_POT = no
 
 # This tells whether or not to forcibly update $(DOMAIN).pot and
 # regenerate PO files on "make dist".  Possible values are "yes" and

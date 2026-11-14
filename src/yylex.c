@@ -1,5 +1,7 @@
 /* yylex - scanner front-end for flex */
 
+/* SPDX-License-Identifier: BSD-3-Clause-flex */
+
 /*  Copyright (c) 1990 The Regents of the University of California. */
 /*  All rights reserved. */
 
@@ -39,7 +41,6 @@
 /* yylex - scan for a regular expression token */
 extern char *yytext;
 extern FILE *yyout;
-bool no_section3_escape = false;
 int     yylex (void)
 {
 	int     toktype;
@@ -51,10 +52,10 @@ int     yylex (void)
 		toktype = flexscan ();
         }
 	if (toktype == EOF || toktype == 0) {
-		eofseen = 1;
+		eofseen = true;
 
 		if (sectnum == 1) {
-			synerr (_("premature EOF"));
+			synerr (_("unexpected end of file: the line that starts the rules section is missing"));
 			sectnum = 2;
 			toktype = SECTEND;
 		}
@@ -197,13 +198,12 @@ int     yylex (void)
 			break;
 
 		case 0:
-			fprintf (stderr, _("End Marker\n"));
+			fprintf (stderr, "End Marker\n");
 			break;
 
 		default:
 			fprintf (stderr,
-				 _
-				 ("*Something Weird* - tok: %d val: %d\n"),
+				 "*Something Weird* - tok: %d val: %d\n",
 				 toktype, yylval);
 			break;
 		}

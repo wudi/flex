@@ -1,0 +1,162 @@
+name: Build CI image
+
+# Builds the image the other workflows run in. See .github/ci-image/Dockerfile.
+#
+# The new image is tested by running the build workflow in it. Only if that
+# passes does this workflow open a pull request that changes
+# .github/ci-image-ref, the one file the other workflows read.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+    - .github/ci-image/**
+    - tools/bootstrap-flex
+  schedule:
+  # Weekly, to pick up operating system updates. Dependabot checks the base
+  # image on Mondays at 05:00 UTC; this runs a few hours after.
+  - cron: '17 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      prune:
+        description: What to do about old images in the registry (list shows what would go)
+        type: choice
+        options: [ list, delete ]
+        default: list
+
+permissions: {}
+
+jobs:
+  image:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.digest.outputs.ref }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/flex-ci
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Log in to the registry
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ACTOR: ${{ github.actor }}
+      run: echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+    - name: Build
+      env:
+        SHA: ${{ github.sha }}
+        REPO: ${{ github.repository }}
+      # The source label links the package to this repository, which lets
+      # later runs of this workflow push to it with the default token.
+      run: |
+        docker build -f .github/ci-image/Dockerfile \
+          --label "org.opencontainers.image.source=https://github.com/$REPO" \
+          -t "$IMAGE:latest" -t "$IMAGE:$SHA" .
+    - name: Push
+      env:
+        SHA: ${{ github.sha }}
+      run: |
+        docker push "$IMAGE:$SHA"
+        docker push "$IMAGE:latest"
+    - name: Find the digest
+      id: digest
+      env:
+        SHA: ${{ github.sha }}
+      run: |
+        ref=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$SHA")
+        printf '%s\n' "$ref" | grep -Eq '^ghcr\.io/[a-z0-9-]+/flex-ci@sha256:[0-9a-f]{64}$' \
+          || { echo "::error::Unexpected image reference: $ref"; exit 1; }
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"
+        echo "The new image is $ref" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Test the new image
+    needs: image
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+    with:
+      image: ${{ needs.image.outputs.ref }}
+
+  propose:
+    name: Propose the new image
+    needs: [ image, test ]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REF: ${{ needs.image.outputs.ref }}
+      BRANCH: ci-image-update
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Open or update the pull request
+      run: |
+        if [ "$(cat .github/ci-image-ref)" = "$REF" ]; then
+          echo "The image reference is already current. Nothing to propose." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git switch -c "$BRANCH"
+        printf '%s\n' "$REF" > .github/ci-image-ref
+        git commit -q -am "chore(ci): use the rebuilt CI image" \
+          -m "The build workflow passed in $REF."
+        git push --force origin "$BRANCH"
+        if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+          gh pr create --head "$BRANCH" --base master \
+            --title "chore(ci): use the rebuilt CI image" \
+            --body "The CI image was rebuilt, and the build workflow passed in it. This changes the reference in .github/ci-image-ref to $REF."
+        fi
+
+  prune:
+    name: Remove old images
+    # Needs only the push, not the test, so a failed test does not let the
+    # registry grow. A push or the weekly run deletes. A run started by hand
+    # only lists, unless it is asked to delete.
+    needs: image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.prune || 'delete' }}
+      # The newest versions to keep. Each weekly run adds one.
+      KEEP: 10
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Remove old versions of the image
+      run: |
+        # Never remove the image that .github/ci-image-ref names: every CI job
+        # pulls it by that digest.
+        current=$(sed -n 's/^.*@//p' .github/ci-image-ref)
+        case $current in
+          sha256:*) ;;
+          *) echo "::error::No digest in .github/ci-image-ref."; exit 1 ;;
+        esac
+        gh api --paginate "users/$OWNER/packages/container/flex-ci/versions?per_page=100" \
+          --jq '.[] | [.id, .name, .created_at] | @tsv' | sort -t "$(printf '\t')" -k3 -r > versions.tsv
+        total=$(wc -l < versions.tsv)
+        if [ "$total" -eq 0 ]; then
+          echo "::error::The registry listed no versions."
+          exit 1
+        fi
+        awk -F '\t' -v keep="$current" -v n="$KEEP" 'NR > n && $2 != keep {print $1}' versions.tsv > remove.txt
+        count=$(wc -l < remove.txt)
+        {
+          echo "### Old images"
+          echo
+          echo "$total versions in the registry; keeping the newest $KEEP and $current."
+          echo "Mode: $MODE. $count to remove."
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "$total versions, $count to remove, mode $MODE"
+        while read -r id; do
+          grep -P "^$id\t" versions.tsv
+          if [ "$MODE" = delete ]; then
+            gh api -X DELETE "users/$OWNER/packages/container/flex-ci/versions/$id"
+          fi
+        done < remove.txt

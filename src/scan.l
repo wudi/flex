@@ -40,7 +40,7 @@
 
 #include "parse.h"
 extern bool tablesverify, tablesext;
-extern int trlcontxt; /* Set in  parse.y for each rule. */
+extern bool trlcontxt; /* Set in parse.y for each rule. */
 extern const char *escaped_qstart, *escaped_qend;
 
 #define M4QSTART "[""["
@@ -85,7 +85,7 @@ extern const char *escaped_qstart, *escaped_qend;
 		reject = true;
 
 #define CHECK_YYREJECT(str) \
-	if ( all_lower( str ) ) \
+	if ( strncmp( str, "yyreject", 8 ) == 0 ) \
 		reject = true;
 
 #define YY_USER_INIT \
@@ -150,15 +150,16 @@ FUNARGS     [^)]*
 
 %{
 void context_call(char *);
+void legacy_call(char *);
 void context_member(char *, const char *);
 #undef yyreject
 %}
 %%
 	static int bracelevel, didadef, indented_code;
-	static int doing_rule_action = false;
-	static int option_sense;
+	static bool doing_rule_action = false;
+	static bool option_sense;
 
-	int doing_codeblock = false;
+	static bool doing_codeblock = false;
 	int brace_depth=0, brace_start_line=0;
 	char nmdef[MAXLINE];
 
@@ -177,12 +178,13 @@ void context_member(char *, const char *);
 		snprintf(trampoline, sizeof(trampoline),
 			 "M4_HOOK_TRACE_LINE_FORMAT(%d, [[%s]])",
 			 linenum, infilename?infilename:"<stdin>");
-                buf_strappend(&top_buf, trampoline);
+                if (ctrl.gen_line_dirs)
+                    buf_strappend(&top_buf, trampoline);
                 brace_depth = 1;
                 yy_push_state(CODEBLOCK_MATCH_BRACE);
             }
 
-    ^"%top".*   synerr( _("malformed '%top' directive") );
+    ^"%top".*   format_synerr( _("malformed '%s' directive"), "%top" );
 
 	{WS}		/* discard */
 
@@ -204,6 +206,9 @@ void context_member(char *, const char *);
 	^"%"{LEXOPT}{WS}.*{NL}	++linenum;	/* ignore */
 
 	/* xgettext: no-c-format */
+	/* TRANSLATORS: A "directive" is a line in the first section of the
+	   input that starts with a percent sign, such as %option or %top.
+	   Do not translate the directive names. */
 	^"%"[^sxaceknopr{}].*	synerr( _( "unrecognized '%' directive" ) );
 
 	^{NAME}		{
@@ -395,7 +400,7 @@ void context_member(char *, const char *);
 	main		{
 			ctrl.do_main = option_sense;
 			/* Override yywrap */
-			if( option_sense == true )
+			if (option_sense)
                 		ctrl.do_yywrap = false;
 			}
 	meta-ecs	ctrl.usemecs = option_sense;
@@ -471,7 +476,7 @@ void context_member(char *, const char *);
 	tables-file         return TOK_TABLES_FILE;
 	tables-verify   {
                     tablesverify = option_sense;
-                    if(!tablesext && option_sense)
+                    if (!tablesext && option_sense)
                         tablesext = true;
                     }
 
@@ -491,8 +496,13 @@ void context_member(char *, const char *);
 			}
 
 	(([a-mo-z]|n[a-np-z])[[:alpha:]\-+]*)|.	{
-			format_synerr( _( "unrecognized %%option: %s" ),
-				yytext );
+			{
+			char msg[MAXLINE];
+
+			snprintf( msg, sizeof(msg), _( "unrecognized %s: %s" ),
+				"%option", yytext );
+			synerr( msg );
+			}
 			BEGIN(RECOVER);
 			}
 }
@@ -673,12 +683,7 @@ void context_member(char *, const char *);
                    */
                 &&  (cclval = ccllookup( nmstr )) != 0 )
 				{
-				if ( yyinput() != ']' )
-					synerr( _( "bad character class" ) );
-
-				yylval = cclval;
-				++cclreuse;
-				return PREVCCL;
+     				 /* Dead code removed */
 				}
 			else
 				{
@@ -802,6 +807,10 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
 	">"/^		BEGIN(CARETISBOL); return '>';
 	{SCNAME}	RETURNNAME;
 	.		{
+			/* TRANSLATORS: A "start condition" is a named state
+			   of the scanner that turns groups of rules on and
+			   off. It is written between < and > in front of a
+			   rule. */
 			format_synerr( _( "bad <start condition>: %s" ),
 				yytext );
 			}
@@ -815,7 +824,7 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
 	"\""		BEGIN(SECT2); return '"';
 
 	{NL}		{
-			synerr( _( "missing quote" ) );
+			synerr( _( "missing closing quotation mark: the line ended inside a quoted string" ) );
 			BEGIN(SECT2);
 			++linenum;
 			return '"';
@@ -847,7 +856,7 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
 	[^\]\n]		RETURNCHAR;
 	"]"		BEGIN(SECT2); return ']';
 	.|{NL}		{
-			synerr( _( "bad character class" ) );
+			synerr( _( "unterminated character class: the line ended before the closing ]" ) );
 			BEGIN(SECT2);
 			return ']';
 			}
@@ -927,11 +936,11 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
 			ACTION_ECHO;
 			CHECK_REJECT(yytext);
         }
-		"yyreject()" {
+		"yyreject"{OPTWS}"("{OPTWS}")" {
 			add_action("]""]M4_HOOK_REJECT[""[");
 			CHECK_YYREJECT(yytext);
         }
-		"yymore()" {
+		"yymore"{OPTWS}"("{OPTWS}")" {
 			yymore_used = true;
 			if (ctrl.rewrite)
 				context_call(yytext);
@@ -959,11 +968,17 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
 <ACTION>{
 	"{"		ACTION_ECHO; ++bracelevel;
 	"}"		ACTION_ECHO; --bracelevel;
-	yyecho\(\)|yyinput\(\)|yystart\({FUNARGS}\)|yybegin\({FUNARGS}\)|yyunput\({FUNARGS}\)|yypanic\({FUNARGS}\)|yyatbol\(\)|yysetbol\({FUNARGS}\) {
+	yyinput\(\)|yypanic\({FUNARGS}\) {
 			if (ctrl.rewrite)
 				context_call(yytext);
 			else
 				ACTION_ECHO;
+	}
+	yyecho\(\)|yystart\({FUNARGS}\)|yybegin\({FUNARGS}\)|yyunput\({FUNARGS}\)|yyatbol\(\)|yysetbol\({FUNARGS}\) {
+			if (ctrl.rewrite)
+				context_call(yytext);
+			else
+				legacy_call(yytext);
 	}
 	yyterminate\(\)|yyless\({FUNARGS}\) {
 			add_action("]""]");
@@ -1055,7 +1070,7 @@ nmstr[yyleng - 2 - end_is_ws] = '\0';  /* chop trailing brace */
        yyterminate();
     }
 }
-<*>.|\n			format_synerr( _( "bad character: %s" ), yytext );
+<*>.|\n			format_synerr( _( "unexpected character: %s" ), yytext );
 
 %%
 
@@ -1083,7 +1098,7 @@ void set_input_file( char *file )
 		yyin = fopen( infilename, "r" );
 
 		if ( yyin == NULL )
-			lerr( _( "can't open %s" ), file );
+			lerr( _( "can't open %s: %s" ), file, strerror(errno));
 		}
 
 	else
@@ -1094,6 +1109,42 @@ void set_input_file( char *file )
 
 	linenum = 1;
 	}
+
+/* In the default back end the lower-case macros of flex 2.6.5 are not
+ * defined, because programs written for 2.6.4 have their own functions
+ * with names like yybegin (GCC does), and a macro would rewrite them.
+ * In an action, write the call in the 2.6.4 way instead. A call with
+ * two arguments, which is a 2.6.4 yyunput, is left as it is. */
+void legacy_call(char *txt) {
+	static const struct { const char *name; const char *with; } map[] = {
+		{ "yyecho", "ECHO" },
+		{ "yystart", "YY_START" },
+		{ "yybegin", "BEGIN" },
+		{ "yyunput", "unput" },
+		{ "yyatbol", "YY_AT_BOL" },
+		{ "yysetbol", "yy_set_bol" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+		size_t n = strlen(map[i].name);
+
+		if (strncmp(txt, map[i].name, n) != 0 || txt[n] != '(')
+			continue;
+		if (strcmp(map[i].name, "yyunput") == 0 && strchr(txt, ',') != NULL) {
+			add_action(txt);
+		} else if (strcmp(map[i].name, "yyecho") == 0 ||
+			   strcmp(map[i].name, "yystart") == 0) {
+			/* object-like in 2.6.4: ECHO and YY_START take no () */
+			add_action(map[i].with);
+		} else {
+			add_action(map[i].with);
+			add_action(txt + n);
+		}
+		return;
+	}
+	add_action(txt);
+}
 
 void context_call(char *txt) {
 	const char *context_arg = skel_property("M4_PROPERTY_CONTEXT_ARG");

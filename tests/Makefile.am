@@ -21,7 +21,7 @@
 
 AM_CFLAGS = $(WARNINGFLAGS)
 
-TESTS = $(check_PROGRAMS) options.cn
+TESTS = $(check_PROGRAMS) options.cn skel_option.skel m4_injection.inj header_file_error.hfe fallthrough.ft bufsiz.bs
 
 # The script testwrapper.sh will run most tests as is. A couple tests
 # in the suite end in .direct, .cn. and the like so that we can pass
@@ -29,7 +29,7 @@ TESTS = $(check_PROGRAMS) options.cn
 # automake knows how to distinguish between the various kinds of tests
 # we have.
 
-TEST_EXTENSIONS = .direct .cn .i3 .pthread .opt .ser .ver
+TEST_EXTENSIONS = .direct .cn .skel .inj .hfe .ft .bs .i3 .pthread .opt .ser .ver
 
 LOG_COMPILER = $(SHELL) $(srcdir)/testwrapper.sh
 AM_LOG_FLAGS = -d $(srcdir) -r
@@ -39,6 +39,17 @@ AM_DIRECT_LOG_FLAGS = -b $(abs_builddir) -s $(srcdir)
 
 CN_LOG_COMPILER = $(SHELL) $(srcdir)/options.cn
 AM_CN_LOG_FLAGS = $(FLEX)
+
+SKEL_LOG_COMPILER = $(SHELL) $(srcdir)/skel_option.skel
+AM_SKEL_LOG_FLAGS = $(FLEX)
+INJ_LOG_COMPILER = $(SHELL) $(srcdir)/m4_injection.inj
+AM_INJ_LOG_FLAGS = $(FLEX)
+HFE_LOG_COMPILER = $(SHELL) $(srcdir)/header_file_error.hfe
+AM_HFE_LOG_FLAGS = $(FLEX)
+FT_LOG_COMPILER = $(SHELL) $(srcdir)/fallthrough.ft
+AM_FT_LOG_FLAGS = $(FLEX) "$(CC)" "$(CXX)" $(top_srcdir)/src
+BS_LOG_COMPILER = $(SHELL) $(srcdir)/bufsiz.bs
+AM_BS_LOG_FLAGS = $(FLEX) "$(CC)" "$(CXX)" $(top_srcdir)/src
 
 I3_LOG_COMPILER = $(SHELL) $(srcdir)/testwrapper.sh
 AM_I3_LOG_FLAGS = -i $(srcdir)/cxx_yywrap.txt -i $(srcdir)/cxx_yywrap.txt -i $(srcdir)/cxx_yywrap.txt
@@ -56,37 +67,59 @@ VER_LOG_COMPILER = $(SHELL) $(srcdir)/testwrapper.sh
 AM_VER_LOG_FLAGS = -d $(builddir) -i $(srcdir)/tableopts.txt -r
 
 AM_YFLAGS = -d -p test
-AM_CPPFLAGS = -I$(top_builddir)/src -I$(top_srcdir)/src
+AM_CPPFLAGS = -I$(top_builddir)/src -I$(top_srcdir)/src -I$(srcdir)
 
 check_PROGRAMS = $(RULESET_TESTS) $(SPORADIC_TESTS) $(DIRECT_TESTS) $(I3_TESTS) $(PTHREAD_TESTS)
 
 SPORADIC_TESTS = \
-	alloc_extra_nr \
+	alloc_extra_r \
 	alloc_extra_c99 \
 	bison_nr \
 	bison_yylloc \
 	bison_yylval \
+	at_bol_member \
+	declared_yyunput \
+	cxx_yyunput_member \
+	cxx_nodefault \
+	buf_size_section1 \
+	fatal_error_name \
+	user_yy_functions \
+	no_backing_up \
+	buffer_typedef_legacy \
 	c_cxx_nr \
 	c_cxx_r \
 	cxx_basic \
+	cxx_buffer_stack \
+	cxx_buffer_typedef_legacy \
+	cxx_legacy_members \
 	cxx_multiple_scanners \
+	cxx_reject \
 	cxx_restart \
+	echo_override_r \
+	flex_debug_nr \
+	flex_debug_prefix_nr \
 	header_nr \
 	header_r \
+	legacy_defines_nr \
 	lineno_generated \
 	mem_nr \
 	mem_r \
 	mem_c99 \
 	multiple_scanners_nr \
 	multiple_scanners_r \
+	no_input_unput_r \
 	prefix_nr \
 	prefix_r \
 	prefix_c99 \
 	quotes \
+	scan_length_c99 \
 	string_nr \
 	string_r \
 	string_c99 \
+	tables_fload_bad \
+	tables_verify_bad \
 	top \
+	user_input_r \
 	yyextra_nr \
 	yyextra_c99
 
@@ -97,8 +130,10 @@ DIRECT_TESTS = \
 	include_by_reentrant.direct \
 	rescan_nr.direct \
 	rescan_r.direct \
+	scan_length.direct \
 	state_buf.direct \
-	state_buf_multiple.direct
+	state_buf_multiple.direct \
+	state_buf_push.direct
 
 I3_TESTS = \
 	cxx_yywrap.i3 \
@@ -107,7 +142,7 @@ I3_TESTS = \
 PTHREAD_TESTS = \
 	pthread.pthread
 
-alloc_extra_nr_SOURCES = alloc_extra_nr.l
+alloc_extra_r_SOURCES = alloc_extra_r.l
 alloc_extra_c99_SOURCES = alloc_extra_c99.l
 if HAVE_BISON
 bison_nr_SOURCES = bison_nr_scanner.l bison_nr_parser.y bison_nr_main.c
@@ -121,12 +156,29 @@ bison_nr_SOURCES = no_bison_stub.c
 bison_yylloc_SOURCES = no_bison_stub.c
 bison_yylval_SOURCES = no_bison_stub.c
 endif
+at_bol_member_SOURCES = at_bol_member.l
+declared_yyunput_SOURCES = declared_yyunput.l
+cxx_yyunput_member_SOURCES = cxx_yyunput_member.ll
+cxx_nodefault_SOURCES = cxx_nodefault.ll
+buf_size_section1_SOURCES = buf_size_section1.l
+fatal_error_name_SOURCES = fatal_error_name.l
+user_yy_functions_SOURCES = user_yy_functions.l
+no_backing_up_SOURCES = no_backing_up.l
+no_backing_up_CFLAGS = $(AM_CFLAGS) -Werror=unused-variable
+buffer_typedef_legacy_SOURCES = buffer_typedef_legacy.l
 c_cxx_nr_SOURCES = c_cxx_nr.lll
 c_cxx_r_SOURCES = c_cxx_r.lll
 cxx_basic_SOURCES = cxx_basic.ll
+cxx_buffer_stack_SOURCES = cxx_buffer_stack.ll
+cxx_buffer_typedef_legacy_SOURCES = cxx_buffer_typedef_legacy.ll
+cxx_legacy_members_SOURCES = cxx_legacy_members.ll
+cxx_reject_SOURCES = cxx_reject.ll
 cxx_restart_SOURCES = cxx_restart.ll
 cxx_multiple_scanners_SOURCES = cxx_multiple_scanners_main.cc cxx_multiple_scanners_1.ll cxx_multiple_scanners_2.ll
 cxx_yywrap_i3_SOURCES = cxx_yywrap.ll
+echo_override_r_SOURCES = echo_override_r.l
+flex_debug_nr_SOURCES = flex_debug_nr_scanner.l flex_debug_nr_main.c
+flex_debug_prefix_nr_SOURCES = flex_debug_prefix_nr_scanner.l flex_debug_prefix_nr_main.c
 header_nr_SOURCES = header_nr_scanner.l header_nr_main.c
 nodist_header_nr_SOURCES = header_nr_scanner.h
 header_r_SOURCES = header_r_scanner.l header_r_main.c
@@ -134,6 +186,7 @@ nodist_header_r_SOURCES = header_r_scanner.h
 include_by_buffer_direct_SOURCES = include_by_buffer.direct.l
 include_by_push_direct_SOURCES = include_by_push.direct.l
 include_by_reentrant_direct_SOURCES = include_by_reentrant.direct.l
+legacy_defines_nr_SOURCES = legacy_defines_nr.l
 lineno_generated_SOURCES = lineno_generated.l
 lineno_generated.l: lineno_generated.l.in
 	grep -n '@LINE@' $^ | sed -e 's%^\([0-9]\+\):.*%\1s/@LINE@/\1/%' | sed -f - $^ > $@.t && mv $@.t $@
@@ -144,6 +197,7 @@ multiple_scanners_nr_SOURCES = multiple_scanners_nr_main.c multiple_scanners_nr_
 nodist_multiple_scanners_nr_SOURCES = multiple_scanners_nr_1.h multiple_scanners_nr_2.h
 multiple_scanners_r_SOURCES = multiple_scanners_r_main.c multiple_scanners_r_1.l multiple_scanners_r_2.l
 nodist_multiple_scanners_r_SOURCES = multiple_scanners_nr_1.h multiple_scanners_nr_2.h
+no_input_unput_r_SOURCES = no_input_unput_r.l
 prefix_nr_SOURCES = prefix_nr.l
 prefix_r_SOURCES = prefix_r.l
 prefix_c99_SOURCES = prefix_c99.l
@@ -151,16 +205,22 @@ pthread_pthread_SOURCES = pthread.l
 quotes_SOURCES = quotes.l
 rescan_nr_direct_SOURCES = rescan_nr.direct.l
 rescan_r_direct_SOURCES = rescan_r.direct.l
+scan_length_c99_SOURCES = scan_length_c99.l
 string_nr_SOURCES = string_nr.l
 string_r_SOURCES = string_r.l
 string_c99_SOURCES = string_c99.l
+tables_fload_bad_SOURCES = tables_fload_bad.l
+tables_verify_bad_SOURCES = tables_verify_bad.l
 top_SOURCES = top.l top_main.c
 nodist_top_SOURCES = top.h
+user_input_r_SOURCES = user_input_r.l
 yyextra_nr_SOURCES = yyextra_nr.l
 yyextra_c99_SOURCES = yyextra_c99.l
 yywrap_r_i3_SOURCES = yywrap_r.i3.l
+scan_length_direct_SOURCES = scan_length.direct.l
 state_buf_direct_SOURCES = state_buf.direct.lll
 state_buf_multiple_direct_SOURCES = state_buf_multiple.direct.lll
+state_buf_push_direct_SOURCES = state_buf_push.direct.l
 
 # Normally, automake would distribute files built by flex. Since the
 # point of the test suite is to test the files that flex builds, and
@@ -172,7 +232,7 @@ state_buf_multiple_direct_SOURCES = state_buf_multiple.direct.lll
 # it.
 
 CLEANFILES = \
-	alloc_extra_nr.c \
+	alloc_extra_r.c \
 	alloc_extra_c99.c \
 	bison_nr_parser.c \
 	bison_nr_parser.h \
@@ -186,13 +246,29 @@ CLEANFILES = \
 	bison_yylval_parser.h \
 	bison_yylval_scanner.c \
 	bison_yylval_scanner.h \
+	at_bol_member.c \
+	declared_yyunput.c \
+	cxx_yyunput_member.cc \
+	cxx_nodefault.cc \
+	buf_size_section1.c \
+	fatal_error_name.c \
+	user_yy_functions.c \
+	no_backing_up.c \
+	buffer_typedef_legacy.c \
 	c_cxx_nr.cc \
 	c_cxx_r.cc \
 	cxx_basic.cc \
+	cxx_buffer_stack.cc \
+	cxx_buffer_typedef_legacy.cc \
+	cxx_legacy_members.cc \
 	cxx_multiple_scanners_1.cc \
 	cxx_multiple_scanners_2.cc \
+	cxx_reject.cc \
 	cxx_restart.cc \
 	cxx_yywrap.cc \
+	echo_override_r.c \
+	flex_debug_nr_scanner.c \
+	flex_debug_prefix_nr_scanner.c \
 	header_nr_scanner.c \
 	header_nr_scanner.h \
 	header_r_scanner.c \
@@ -200,6 +276,7 @@ CLEANFILES = \
 	include_by_buffer.direct.c \
 	include_by_push.direct.c \
 	include_by_reentrant.direct.c \
+	legacy_defines_nr.c \
 	lineno_generated.c \
 	lineno_generated.l \
 	mem_nr.c \
@@ -213,25 +290,34 @@ CLEANFILES = \
 	multiple_scanners_r_1.h \
 	multiple_scanners_r_2.c \
 	multiple_scanners_r_2.h \
+	no_input_unput_r.c \
 	prefix_nr.c \
 	prefix_r.c \
 	prefix_c99.c \
 	pthread.c \
 	quotes.c \
 	quotes_c99.c \
+	scan_length_c99.c \
 	rescan_nr.direct.c \
 	rescan_r.direct.c \
+	scan_length.direct.c \
 	string_nr.c \
 	string_r.c \
 	string_c99.c \
 	string_c99.c \
+	tables_fload_bad.c \
+	tables_fload_bad.tables \
+	tables_verify_bad.c \
+	tables_verify_bad.tables \
 	top.c \
 	top.h  \
+	user_input_r.c \
 	yyextra_nr.c \
 	yyextra_c99.c \
 	yywrap_r.i3.c \
 	state_buf.direct.cc \
 	state_buf_multiple.direct.cc \
+	state_buf_push.direct.c \
 	$(RULESET_REMOVABLES)
 
 dist-hook:
@@ -242,6 +328,7 @@ dist-hook:
 	done
 
 EXTRA_DIST = \
+	tables_bad.h \
 	README \
 	testmaker.m4 \
 	alloc_extra.txt \
@@ -251,7 +338,9 @@ EXTRA_DIST = \
 	c_cxx_nr.txt \
 	c_cxx_r.txt \
 	cxx_basic.txt \
+	cxx_buffer_stack.txt \
 	cxx_multiple_scanners.txt \
+	cxx_reject.txt \
 	cxx_restart.txt \
 	cxx_yywrap.txt \
 	header_nr.txt \
@@ -282,6 +371,7 @@ EXTRA_DIST = \
 	bol.txt \
 	ccl.txt \
 	debug.txt \
+	defaultrule.txt \
 	extended.txt \
 	fixedtrailing.txt \
 	flexname.txt \
@@ -299,18 +389,28 @@ EXTRA_DIST = \
 	yymore.txt \
 	yymorearray.txt \
 	yymorearraybol.txt \
+	yymorearrayless.txt \
+	yymorearrayrefill.txt \
+	yymorearrayswitch.txt \
 	yyunput.txt \
 	state_buf.direct.txt \
 	state_buf_multiple.direct.txt \
+	state_buf_push.direct.txt \
 	$(RULESETS)
 
 dist_noinst_SCRIPTS = \
 	ruleset.sh \
+	scan_length.h \
 	testmaker.sh \
 	test-yydecl-gen.sh
 
 dist_check_SCRIPTS = \
 	options.cn \
+	skel_option.skel \
+	m4_injection.inj \
+	header_file_error.hfe \
+	fallthrough.ft \
+	bufsiz.bs \
 	testwrapper-direct.sh \
 	testwrapper.sh
 
@@ -322,10 +422,14 @@ TESTOPTS = -L
 
 FLEX = $(top_builddir)/src/flex
 
-.l.c: $(FLEX)
+.l.c: 
+
+%.c: %.l $(FLEX)
 	$(AM_V_LEX)$(FLEX) $(TESTOPTS) -o $@ $<
 
-.ll.cc: $(FLEX)
+.ll.cc:
+
+%.cc: %.ll $(FLEX)
 	$(AM_V_LEX)$(FLEX) $(TESTOPTS) -+ -o $@ $<
 
 #want line numbers, so override the default rule
@@ -334,6 +438,7 @@ lineno_generated.c: lineno_generated.l
 
 bison_nr_main.$(OBJEXT): bison_nr_parser.h bison_nr_scanner.h
 bison_nr_scanner.$(OBJEXT): bison_nr_parser.h
+bison_nr_parser.$(OBJEXT): bison_nr_scanner.h
 
 bison_nr_scanner.h: bison_nr_scanner.c
 	@if test ! -f $@; then rm -f $<; else :; fi
@@ -341,6 +446,7 @@ bison_nr_scanner.h: bison_nr_scanner.c
 
 bison_yylloc_main.$(OBJEXT): bison_yylloc_parser.h bison_yylloc_scanner.h
 bison_yylloc_scanner.$(OBJEXT): bison_yylloc_parser.h
+bison_yylloc_parser.$(OBJEXT): bison_yylloc_scanner.h
 
 bison_yylloc_scanner.h: bison_yylloc_scanner.c
 	@if test ! -f $@; then rm -f $<; else :; fi
@@ -348,6 +454,7 @@ bison_yylloc_scanner.h: bison_yylloc_scanner.c
 
 bison_yylval_main.$(OBJEXT): bison_yylval_parser.h bison_yylval_scanner.h
 bison_yylval_scanner.$(OBJEXT): bison_yylval_parser.h
+bison_yylval_parser.$(OBJEXT): bison_yylval_scanner.h
 
 bison_yylval_scanner.h: bison_yylval_scanner.c
 	@if test ! -f $@; then rm -f $<; else :; fi
@@ -356,7 +463,9 @@ bison_yylval_scanner.h: bison_yylval_scanner.c
 # automake does not support compiling flex scanners output in C as C++
 # so we explicitly sayhow, using the .lll suffix for the lex input file
 
-.lll.cc: $(FLEX)
+.lll.cc:
+
+%.cc: %.lll $(FLEX)
 	$(AM_V_LEX)$(FLEX) $(TESTOPTS) -o $@ $<
 
 header_nr_main.$(OBJEXT): header_nr_scanner.h
@@ -396,13 +505,21 @@ top.h: top.c
 
 # Build rules for non-C back ends
 
-.l.go:
-	$(AM_V_LEX)$(FLEX) $(TESTOPTS) -o $@ $<
-
-# This is a temporary fake rule for use while the Go back end still
-# actually generates C.
-.go:
-	$(CC) $< -o $*_go
+## A Go backend would be built like this
+# .l.go:
+# 
+# %.go: %.l $(FLEX)
+# 	$(AM_V_LEX)$(FLEX) $(TESTOPTS) -o $@ $<
+# 
+# .go:
+#
+# # This is a temporary fake rule for use while the Go back end still
+# # actually generates C.
+# # We'll replace the CC comand with a golang command if Make still
+# # doesn't have a builtin rule when the backend is ready.
+# 
+# %.o: %.go
+#	$(CC) $< -o $*_go
 
 # Most test productions can be autogenerated from ruleset files, but
 # automake has no way to specify such things with a loop in a variable
@@ -416,6 +533,7 @@ RULESETS = \
 	$(srcdir)/bol.rules \
 	$(srcdir)/ccl.rules \
 	$(srcdir)/debug.rules \
+	$(srcdir)/defaultrule.rules \
 	$(srcdir)/extended.rules \
 	$(srcdir)/fixedtrailing.rules \
 	$(srcdir)/flexname.rules \
@@ -432,10 +550,14 @@ RULESETS = \
 	$(srcdir)/yymore.rules \
 	$(srcdir)/yymorearray.rules \
 	$(srcdir)/yymorearraybol.rules \
+	$(srcdir)/yymorearrayless.rules \
+	$(srcdir)/yymorearrayrefill.rules \
+	$(srcdir)/yymorearrayswitch.rules \
 	$(srcdir)/yyunput.rules
 
 $(srcdir)/ruleset.am: $(srcdir)/ruleset.sh $(RULESETS)
-	$(SHELL) $(srcdir)/ruleset.sh nr r c99 go > $(srcdir)/ruleset.am
+	( cd $(srcdir) && $(SHELL) ruleset.sh nr r c99 >ruleset.am )
+#	( cd $(srcdir) && $(SHELL) ruleset.sh nr r c99 go >ruleset.am )
 
 include $(srcdir)/ruleset.am
 

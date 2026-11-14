@@ -95,14 +95,14 @@ public:
 
   int lineno() const          { return yylineno; }
 
-  int debug() const           { return yyflexdebug; }
-  void set_debug( int flag )  { yyflexdebug = flag; }
+  int debug() const           { return yy_flex_debug; }
+  void set_debug( int flag )  { yy_flex_debug = flag; }
 
 protected:
   char* yytext;
   int yyleng;
   int yylineno;       // only maintained if you use %option yylineno
-  int yyflexdebug;    // only has effect with -d or "%option debug"
+  int yy_flex_debug;  // only has effect with -d or "%option debug"
 };
 
 }
@@ -150,7 +150,7 @@ protected:
   virtual void LexerOutput( const char* buf, int size );
   virtual void LexerError( const char* msg );
 			
-  void yyunput_r( int c, char* buf_ptr );
+  void yyunput( int c, char* buf_ptr );
   int yyinput();
 
   void yy_load_buffer_state();

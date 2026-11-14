@@ -68,7 +68,9 @@
 #include "tables.h"
 
 int pat, scnum, eps, headcnt, trailcnt, lastchar, i, rulelen;
-int trlcontxt, xcluflg, currccl, cclsorted, varlength, variable_trail_rule;
+static int currccl;
+bool trlcontxt;
+static bool sc_is_exclusive, cclsorted, varlength, variable_trail_rule;
 
 int *scon_stk;
 int scon_stk_ptr;
@@ -130,6 +132,8 @@ goal		:  initlex sect1 sect1end sect2 initforrule
 			 */
 			default_rule = num_rules;
 
+			rule_has_nl[default_rule] = true;
+
 			finish_rule( def_rule, false, 0, 0, 0);
 
 			for ( i = 1; i <= lastsc; ++i )
@@ -172,19 +176,22 @@ sect1end	:  SECTEND
 		;
 
 startconddecl	:  SCDECL
-			{ xcluflg = false; }
+			{ sc_is_exclusive = false; }
 
 		|  XSCDECL
-			{ xcluflg = true; }
+			{ sc_is_exclusive = true; }
 		;
 
 namelist1	:  namelist1 NAME
-			{ scinstal( nmstr, xcluflg ); }
+			{ scinstal( nmstr, sc_is_exclusive ); }
 
 		|  NAME
-			{ scinstal( nmstr, xcluflg ); }
+			{ scinstal( nmstr, sc_is_exclusive ); }
 
 		|  error
+			/* TRANSLATORS: A "start condition" is a named state
+			   of the scanner that turns groups of rules on and
+			   off. */
 			{ synerr( _("bad start condition list") ); }
 		;
 
@@ -197,35 +204,53 @@ optionlist	:  optionlist option
 
 option		:  TOK_OUTFILE '=' NAME
 			{
+			reject_brackets_in_option_value("outfile", nmstr);
+			free(env.outfilename);
 			env.outfilename = xstrdup(nmstr);
 			env.did_outfilename = 1;
 			}
 		|  TOK_EXTRA_TYPE '=' NAME
-			{ extra_type = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("extra-type", nmstr);
+			  free(extra_type);
+			  extra_type = xstrdup(nmstr); }
 		|  TOK_PREFIX '=' NAME
-			{ ctrl.prefix = xstrdup(nmstr);
-                          if (strchr(ctrl.prefix, '[') || strchr(ctrl.prefix, ']'))
-                              flexerror(_("Prefix must not contain [ or ]")); }
+			{ reject_brackets_in_option_value("prefix", nmstr);
+			  free(ctrl.prefix);
+			  ctrl.prefix = xstrdup(nmstr); }
 		|  TOK_YYCLASS '=' NAME
-			{ ctrl.yyclass = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("yyclass", nmstr);
+			  free(ctrl.yyclass);
+			  ctrl.yyclass = xstrdup(nmstr); }
 		|  TOK_HEADER_FILE '=' NAME
-			{ env.headerfilename = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("header-file", nmstr);
+			  free(env.headerfilename);
+			  env.headerfilename = xstrdup(nmstr); }
 		|  TOK_YYLMAX '=' TOK_NUMERIC
 			{ ctrl.yylmax = nmval; }
 		|  TOK_YYDECL '=' NAME
-			{ ctrl.yydecl = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("yydecl", nmstr);
+			  free(ctrl.yydecl);
+			  ctrl.yydecl = xstrdup(nmstr); }
 		|  TOK_PREACTION '=' NAME
-			{ ctrl.preaction = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("pre-action", nmstr);
+			  free(ctrl.preaction);
+			  ctrl.preaction = xstrdup(nmstr); }
 		|  TOK_POSTACTION '=' NAME
-			{ ctrl.postaction = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("post-action", nmstr);
+			  free(ctrl.postaction);
+			  ctrl.postaction = xstrdup(nmstr); }
 		|  TOK_BUFSIZE '=' TOK_NUMERIC
 			{ ctrl.bufsize = nmval; }
 		|  TOK_EMIT '=' NAME
-			{ ctrl.emit = xstrdup(nmstr); backend_by_name(ctrl.emit); }
+			{ free(ctrl.emit); ctrl.emit = xstrdup(nmstr); backend_by_name(ctrl.emit); }
 		|  TOK_USERINIT '=' NAME
-			{ ctrl.userinit = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("user-init", nmstr);
+			  free(ctrl.userinit);
+			  ctrl.userinit = xstrdup(nmstr); }
 		|  TOK_YYTERMINATE '=' NAME
-			{ ctrl.yyterminate = xstrdup(nmstr); }
+			{ reject_brackets_in_option_value("yyterminate", nmstr);
+			  free(ctrl.yyterminate);
+			  ctrl.yyterminate = xstrdup(nmstr); }
 		|  TOK_TABLES_FILE '=' NAME
         		{ tablesext = true; tablesfilename = xstrdup(nmstr); }
 		;
@@ -281,8 +306,9 @@ flexrule	:  '^' rule
 				bol_needed = true;
 
 				if ( env.performance_hint > 1 )
-					pinpoint_message(
-			"'^' operator results in sub-optimal performance" );
+					format_pinpoint_message(
+			_("%s operator results in sub-optimal performance"),
+			"'^'" );
 				}
 			}
 
@@ -325,8 +351,9 @@ flexrule	:  '^' rule
 						scon_stk[++scon_stk_ptr] = i;
 
 				if ( scon_stk_ptr == 0 )
-					lwarn(
-			"all start conditions already have <<EOF>> rules" );
+					format_warn(
+			_("all start conditions already have %s rules"),
+			"<<EOF>>" );
 
 				else
 					build_eof_action();
@@ -334,7 +361,7 @@ flexrule	:  '^' rule
 			}
 
 		|  error
-			{ synerr( _("unrecognized rule") ); }
+			{ synerr( _("syntax error: this is not a valid rule") ); }
 		;
 
 scon_stk_ptr	:
@@ -377,7 +404,7 @@ sconname	:  NAME
 			{
 			if ( (scnum = sclookup( nmstr )) == 0 )
 				format_pinpoint_message(
-					"undeclared start condition %s",
+					_("undeclared start condition %s"),
 					nmstr );
 			else
 				{
@@ -385,7 +412,7 @@ sconname	:  NAME
 					if ( scon_stk[i] == scnum )
 						{
 						format_warn(
-							"<%s> specified twice",
+							_("<%s> specified twice"),
 							scname[scnum] );
 						break;
 						}
@@ -420,8 +447,9 @@ rule		:  re2 re
 				 * erroneously.
 				 */
 				if ( ! varlength || headcnt != 0 )
-					lwarn(
-		"trailing context made variable due to preceding '|' action" );
+					format_warn(
+		_("trailing context made variable due to preceding '%s' action"),
+		"|" );
 
 				/* Mark as variable. */
 				varlength = true;
@@ -453,6 +481,10 @@ rule		:  re2 re
 			}
 
 		|  re2 re '$'
+			/* TRANSLATORS: "Trailing context" is the part of a
+			   rule that must match after the text of the rule,
+			   written r/s or with a $ at the end of the rule. A
+			   rule can have only one. */
 			{ synerr( _("trailing context used twice") ); }
 
 		|  re '$'
@@ -475,8 +507,9 @@ rule		:  re2 re
 				/* See the comment in the rule for "re2 re"
 				 * above.
 				 */
-				lwarn(
-		"trailing context made variable due to preceding '|' action" );
+				format_warn(
+		_("trailing context made variable due to preceding '%s' action"),
+		"|" );
 
 				varlength = true;
 				}
@@ -571,7 +604,12 @@ series		:  series singleton
 
 			if ( $3 > $5 || $3 < 0 )
 				{
-				synerr( _("bad iteration values") );
+				/* TRANSLATORS: A "repeat range" is a pair of
+				   numbers in braces after a pattern, such as
+				   {2,5}, that sets how many times the
+				   pattern may repeat. */
+				synerr( _("invalid repeat range in braces: the first number must not be "
+				  "larger than the second, and the second must be at least 1") );
 				$$ = $1;
 				}
 			else
@@ -581,7 +619,8 @@ series		:  series singleton
 					if ( $5 <= 0 )
 						{
 						synerr(
-						_("bad iteration values") );
+						_("invalid repeat range in braces: the first number must not be "
+						  "larger than the second, and the second must be at least 1") );
 						$$ = $1;
 						}
 					else
@@ -599,7 +638,7 @@ series		:  series singleton
 
 			if ( $3 <= 0 )
 				{
-				synerr( _("iteration value must be positive") );
+				synerr( _("the repeat count in braces must be at least 1") );
 				$$ = $1;
 				}
 
@@ -617,7 +656,7 @@ series		:  series singleton
 
 			if ( $3 <= 0 )
 				{
-				  synerr( _("iteration value must be positive")
+				  synerr( _("the repeat count in braces must be at least 1")
 					  );
 				$$ = $1;
 				}
@@ -654,7 +693,8 @@ singleton	:  singleton '*'
 
 			if ( $3 > $5 || $3 < 0 )
 				{
-				synerr( _("bad iteration values") );
+				synerr( _("invalid repeat range in braces: the first number must not be "
+				  "larger than the second, and the second must be at least 1") );
 				$$ = $1;
 				}
 			else
@@ -664,7 +704,8 @@ singleton	:  singleton '*'
 					if ( $5 <= 0 )
 						{
 						synerr(
-						_("bad iteration values") );
+						_("invalid repeat range in braces: the first number must not be "
+						  "larger than the second, and the second must be at least 1") );
 						$$ = $1;
 						}
 					else
@@ -682,7 +723,7 @@ singleton	:  singleton '*'
 
 			if ( $3 <= 0 )
 				{
-				synerr( _("iteration value must be positive") );
+				synerr( _("the repeat count in braces must be at least 1") );
 				$$ = $1;
 				}
 
@@ -700,7 +741,7 @@ singleton	:  singleton '*'
 
 			if ( $3 <= 0 )
 				{
-				synerr( _("iteration value must be positive") );
+				synerr( _("the repeat count in braces must be at least 1") );
 				$$ = $1;
 				}
 
@@ -935,13 +976,13 @@ ccl_expr:
 		|  CCE_NEG_XDIGIT	{ CCL_NEG_EXPR(isxdigit); }
 		|  CCE_NEG_LOWER	{ 
 				if ( sf_case_ins() )
-					lwarn(_("[:^lower:] is ambiguous in case insensitive scanner"));
+					lwarn(_("[:^lower:] is ambiguous in a case-insensitive scanner"));
 				else
 					CCL_NEG_EXPR(islower);
 				}
 		|  CCE_NEG_UPPER	{
 				if ( sf_case_ins() )
-					lwarn(_("[:^upper:] ambiguous in case insensitive scanner"));
+					lwarn(_("[:^upper:] is ambiguous in a case-insensitive scanner"));
 				else
 					CCL_NEG_EXPR(isupper);
 				}
@@ -981,9 +1022,14 @@ void build_eof_action(void)
 	for ( i = 1; i <= scon_stk_ptr; ++i )
 		{
 		if ( sceof[scon_stk[i]] )
-			format_pinpoint_message(
-				"multiple <<EOF>> rules for start condition %s",
-				scname[scon_stk[i]] );
+			{
+			char msg[MAXLINE];
+
+			snprintf( msg, sizeof(msg),
+				_("multiple %s rules for start condition %s"),
+				"<<EOF>>", scname[scon_stk[i]] );
+			pinpoint_message( msg );
+			}
 
 		else
 			{
@@ -992,7 +1038,7 @@ void build_eof_action(void)
 			if (previous_continued_action /* && previous action was regular */)
 				add_action("YY_RULE_SETUP\n");
 
-			snprintf( action_text, sizeof(action_text), "case YY_STATE_EOF(%s):\n",
+			snprintf( action_text, sizeof(action_text), "M4_HOOK_EOF_STATE_CASE_ARM(%s)\n",
 				scname[scon_stk[i]] );
 			add_action( action_text );
 			}
@@ -1078,7 +1124,7 @@ void line_warning( const char *str, int line )
 
 	if ( ! env.nowarn )
 		{
-		snprintf( warning, sizeof(warning), "warning, %s", str );
+		snprintf( warning, sizeof(warning), _("warning, %s"), str );
 		line_pinpoint( warning, line );
 		}
 	}

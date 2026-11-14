@@ -1,0 +1,122 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '04 00 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  image:
+    uses: ./.github/workflows/ci-image-ref.yml
+    permissions:
+      contents: read
+
+  nightly:
+    name: Run a Nightly Build and Save the Artifacts
+    needs: image
+    runs-on: ubuntu-22.04
+    outputs:
+      update_needed: ${{ steps.update.outputs.needed }}
+      version_slug: ${{ steps.update.outputs.slug }}
+      version: ${{ steps.version.outputs.version }}
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check that the nightlies release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view nightlies
+      - name: Check time since last commit
+        id: update
+        run: |
+          slug=$(git log -n 1 --pretty='format:%h-%as')
+          echo "slug=$slug" >> $GITHUB_OUTPUT
+          authorDate=$(echo $slug | cut -d '-' -f 2-4)
+          update=1
+          [ $(( $(date +%s) - $(date --date=$authorDate +%s) )) -ge 172800 ] && echo "::notice title=No Changes::No changes within the last two days. Skipping nightly build." && update=0
+          echo "needed=$update" >> $GITHUB_OUTPUT
+      - name: Change version number
+        id: version
+        env:
+          slug: ${{ steps.update.outputs.slug }}
+          update_needed: ${{ steps.update.outputs.needed }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          ver=$(sed -n "s/^\(AC_INIT.*generator\],\)\[\(.*\)\]\(,\[flex-help.*\)$/\2/p" $GITHUB_WORKSPACE/configure.ac)
+          ver=${ver#v}
+          ver=${ver%-*}
+          ver=$ver-$slug
+          echo "version=$ver" >> $GITHUB_OUTPUT
+          sed -i "s/^\(AC_INIT.*generator\],\)\(.*\)\(,\[flex-help.*\)$/\1[$ver]\3/" $GITHUB_WORKSPACE/configure.ac
+      - name: Update CHANGE_LOG
+        env:
+          update_needed: ${{ steps.update.outputs.needed }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          # git2cl cannot tell that it has no terminal here, and writes an
+          # empty file unless the log is piped in.
+          git log | ./tools/git2cl > $GITHUB_WORKSPACE/ChangeLog
+      - name: build
+        env:
+          update_needed: ${{ steps.update.outputs.needed }}
+          image: ${{ needs.image.outputs.ref }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src" -w /src "$image" \
+            sh -c './autogen.sh && ./configure && make && make distcheck'
+      - name: Check the ChangeLog in the tarball
+        env:
+          ver: ${{ steps.version.outputs.version }}
+          update_needed: ${{ steps.update.outputs.needed }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          # make dist writes the ChangeLog again, so look at the one that shipped.
+          size=$(tar -xzOf flex-$ver.tar.gz flex-$ver/ChangeLog | wc -c)
+          echo "The ChangeLog in the tarball is $size bytes."
+          [ "$size" -gt 0 ] || { echo "::error::The ChangeLog in the tarball is empty."; exit 1; }
+      - name: Make Git archives
+        env:
+          ver: ${{ steps.version.outputs.version }}
+          update_needed: ${{ steps.update.outputs.needed }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          git archive -o $ver.src.tar.gz --prefix=flex-$ver/ HEAD
+          TZ=America/Los_Angeles git archive -o $ver.src.zip --prefix=flex-$ver/ HEAD
+          echo "SOURCE_GZ=$(echo $ver.src.tar.gz)" >> $GITHUB_ENV
+          echo "SOURCE_ZIP=$(echo $ver.src.zip)" >> $GITHUB_ENV
+      - name: Get artifact names
+        env:
+          ver: ${{ steps.version.outputs.version }}
+          update_needed: ${{ steps.update.outputs.needed }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          echo "ARTIFACT_GZ=$(echo flex-$ver.tar.gz)" >> $GITHUB_ENV
+          echo "ARTIFACT_LZ=$(echo flex-$ver.tar.lz)" >> $GITHUB_ENV
+      - name: Upload Artifacts to Nightlies Release
+        id: upload-nightly-artifacts
+        env:
+          update_needed: ${{ steps.update.outputs.needed }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          gh release upload nightlies ${{ env.ARTIFACT_GZ }} ${{ env.ARTIFACT_LZ }} ${{ env.SOURCE_GZ }} ${{ env.SOURCE_ZIP }} --clobber
+      - name: Delete older nightlies
+        env:
+          ver: ${{ steps.version.outputs.version }}
+          update_needed: ${{ steps.update.outputs.needed }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: ${{ env.update_needed == 1 }}
+        run: |
+          names=$(gh release view nightlies --json assets --jq '.assets[].name')
+          # Delete nothing unless the four files just uploaded are all there.
+          [ "$(echo "$names" | grep -cF -- "$ver")" -eq 4 ] || { echo "::error::The new nightly files are not all in the release. Keeping the old ones."; exit 1; }
+          echo "$names" | grep -vF -- "$ver" | while read -r name; do
+            gh release delete-asset nightlies "$name" --yes
+          done

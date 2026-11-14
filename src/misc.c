@@ -1,5 +1,7 @@
 /* misc - miscellaneous flex routines */
 
+/* SPDX-License-Identifier: BSD-3-Clause-flex */
+
 /*  Copyright (c) 1990 The Regents of the University of California. */
 /*  All rights reserved. */
 
@@ -63,24 +65,7 @@ void add_action (const char *new_text)
 
 void   *allocate_array (int size, size_t element_size)
 {
-	void *new_array;
-#if HAVE_REALLOCARR
-	new_array = NULL;
-	if (reallocarr(&new_array, (size_t) size, element_size))
-		flexfatal (_("memory allocation failed in allocate_array()"));
-#else
-# if HAVE_REALLOCARRAY
-	new_array = reallocarray(NULL, (size_t) size, element_size);
-# else
-	/* Do manual overflow detection */
-	size_t num_bytes = (size_t) size * element_size;
-	new_array = (size && SIZE_MAX / (size_t) size < element_size) ? NULL :
-		malloc(num_bytes);
-# endif
-	if (!new_array)
-		flexfatal (_("memory allocation failed in allocate_array()"));
-#endif
-	return new_array;
+	return reallocate_array(NULL, size, element_size);
 }
 
 
@@ -128,8 +113,8 @@ int intcmp (const void *a, const void *b)
 void check_char (int c)
 {
 	if (c >= CSIZE)
-		lerr (_("bad character '%s' detected in check_char()"),
-			readable_form (c));
+		lerr (_("bad character '%s' detected in %s()"),
+			readable_form (c), "check_char");
 
 	if (c >= ctrl.csize)
 		lerr (_
@@ -152,7 +137,7 @@ char *xstrdup(const char *s)
 	char *s2;
 
 	if ((s2 = strdup(s)) == NULL)
-		flexfatal (_("memory allocation failure in xstrdup()"));
+		lerr_fatal (_("memory allocation failed in %s()"), "xstrdup");
 
 	return s2;
 }
@@ -184,7 +169,7 @@ void dataend (const char *endit)
 
 		/* add terminator for initialization; { for vi */
 		if (endit)
-		    outn (endit);
+			outn (endit);
 	}
 	dataline = 0;
 	datapos = 0;
@@ -195,9 +180,7 @@ void dataend (const char *endit)
 
 void dataflush (void)
 {
-	/* short circuit any output */
-	if (!gentables)
-		return;
+	assert (gentables);
 
 	if (datapos > 0)
 		outc ('\n');
@@ -221,6 +204,30 @@ void flexerror (const char *msg)
 {
 	fprintf (stderr, "%s: %s\n", program_name, msg);
 	flexend (1);
+}
+
+
+/* reject_brackets_in_option_value - bail out if a %option= value contains
+ * `[` or `]`.  Such characters break out of the m4 quoting scheme that
+ * flex uses to interpolate option values into m4 input (see PR #81 which
+ * added the same escaping for action / code-block contexts via
+ * ESCAPED_QSTART / ESCAPED_QEND in src/scan.l).  The OPTION-state
+ * quoted-string rule at src/scan.l:480 was never plumbed through that
+ * escape, so without this guard a malicious .l file can inject arbitrary
+ * m4 (e.g. m4_syscmd) into the output pipeline.
+ *
+ * Mirrors the existing prefix= guard that has been in parse.y since
+ * before PR #81.
+ */
+void reject_brackets_in_option_value (const char *opt_name, const char *val)
+{
+	if (val != NULL && (strchr (val, '[') || strchr (val, ']'))) {
+		char    msg[MAXLINE];
+		snprintf (msg, sizeof msg,
+		          _("the value of '%s' must not contain '[' or ']'"),
+		          opt_name);
+		flexerror (msg);
+	}
 }
 
 
@@ -351,7 +358,7 @@ void mk2data (int value)
 		out ("    ");
 
 	else
-		outc (',');
+	  outc (',');
 
 	++datapos;
 
@@ -377,10 +384,9 @@ void mkdata (int value)
 
 	if (datapos == 0)
 		/* Indent. */
-		out ("     ");
+		out ("    ");
 	else
 		outc (',');
-
 	++datapos;
 
 	out_dec ("%5d", value);
@@ -581,12 +587,17 @@ char   *readable_form (int c)
 void   *reallocate_array (void *array, int size, size_t element_size)
 {
 	void *new_array;
-#if HAVE_REALLOCARR
+#ifdef HAVE_REALLOCARR
 	new_array = array;
-	if (reallocarr(&new_array, (size_t) size, element_size))
-		flexfatal (_("attempt to increase array size failed"));
+	if (reallocarr(&new_array, (size_t) size, element_size)) {
+		if (array)
+			flexfatal (_("attempt to increase array size failed"));
+		else
+			lerr_fatal (_("memory allocation failed in %s()"),
+				    "reallocate_array");
+	}
 #else
-# if HAVE_REALLOCARRAY
+# ifdef HAVE_REALLOCARRAY
 	new_array = reallocarray(array, (size_t) size, element_size);
 # else
 	/* Do manual overflow detection */
@@ -594,8 +605,13 @@ void   *reallocate_array (void *array, int size, size_t element_size)
 	new_array = (size && SIZE_MAX / (size_t) size < element_size) ? NULL :
 		realloc(array, num_bytes);
 # endif
-	if (!new_array)
-		flexfatal (_("attempt to increase array size failed"));
+	if (!new_array) {
+		if (array)
+			flexfatal (_("attempt to increase array size failed"));
+		else
+			lerr_fatal (_("memory allocation failed in %s()"),
+				    "reallocate_array");
+	}
 #endif
 	return new_array;
 }
@@ -641,8 +657,8 @@ void   *yy_flex_xmalloc (int size)
 
 	result = malloc((size_t) size);
 	if (!result)
-		flexfatal (_
-			   ("memory allocation failed in yy_flex_xmalloc()"));
+		lerr_fatal (_("memory allocation failed in %s()"),
+			    "yy_flex_xmalloc");
 
 	return result;
 }

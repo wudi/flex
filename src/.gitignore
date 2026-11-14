@@ -4,13 +4,16 @@
 *-flex.h
 config.h
 config.h.in
+config_for_build.h
 flex
 libfl.pc
 parse.c
 parse.h
 scan.c
-stage1scan.[cl]
+stage1scan.c
 stage1flex
+stage2compare
+stage2scan.c
 
 # for MSWindows
 

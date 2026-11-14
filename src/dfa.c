@@ -1,5 +1,7 @@
 /* dfa - DFA construction routines */
 
+/* SPDX-License-Identifier: BSD-3-Clause-flex */
+
 /*  Copyright (c) 1990 The Regents of the University of California. */
 /*  All rights reserved. */
 
@@ -34,10 +36,11 @@
 
 /* declare functions that have forward references */
 
-void	dump_associated_rules(FILE *, int);
-void	dump_transitions(FILE *, int[]);
-void	sympartition(int[], int, int[], int[]);
-int	symfollowset(int[], int, int, int[]);
+static void dump_associated_rules(FILE *, int);
+static void dump_transitions(FILE *, int[]);
+static int  snstods(int[], int, int[], int, int, int *);
+static void sympartition(int[], int, int[], int[]);
+static int  symfollowset(int[], int, int, int[]);
 
 
 /* check_for_backing_up - check a DFA state for backing up
@@ -49,13 +52,19 @@ int	symfollowset(int[], int, int, int[]);
  * indexed by equivalence class.
  */
 
-void check_for_backing_up (int ds, int state[])
+static void check_for_backing_up(int ds, int state[])
 {
 	if ((reject && !dfaacc[ds].dfaacc_set) || (!reject && !dfaacc[ds].dfaacc_state)) {	/* state is non-accepting */
 		++num_backing_up;
 
 		if (env.backing_up_report) {
 			fprintf (ctrl.backing_up_file,
+				 /* TRANSLATORS: This starts one line of the
+				    report written by the -b option. A
+				    "non-accepting" state is one in which no
+				    rule has been matched yet, so the
+				    scanner may have to back up to an
+				    earlier position in the input. */
 				 _("State #%d is non-accepting -\n"), ds);
 
 			/* identify the state */
@@ -94,7 +103,7 @@ void check_for_backing_up (int ds, int state[])
  *    accset[1 .. nacc] is the list of accepting numbers for the DFA state.
  */
 
-void check_trailing_context (int *nfa_states, int num_states, int *accset, int nacc)
+static void check_trailing_context(int *nfa_states, int num_states, int *accset, int nacc)
 {
 	int i, j;
 
@@ -115,8 +124,14 @@ void check_trailing_context (int *nfa_states, int num_states, int *accset, int n
 			 */
 			for (j = 1; j <= nacc; ++j)
 				if (accset[j] & YY_TRAILING_HEAD_MASK) {
-					line_warning (_
-						      ("dangerous trailing context"),
+					/* TRANSLATORS: "Trailing context"
+					   is the part of a rule that must
+					   match after the text of the rule,
+					   written r/s or with a $ at the
+					   end of the rule. It is dangerous
+					   when the two parts can match the
+					   same characters. */
+					line_warning (_("dangerous trailing context"),
 						      rule_linenum[ar]);
 					return;
 				}
@@ -132,7 +147,7 @@ void check_trailing_context (int *nfa_states, int num_states, int *accset, int n
  * and writes a report to the given file.
  */
 
-void dump_associated_rules (FILE *file, int ds)
+static void dump_associated_rules(FILE *file, int ds)
 {
 	int i, j;
 	int num_associated_rules = 0;
@@ -156,7 +171,9 @@ void dump_associated_rules (FILE *file, int ds)
 
 	qsort (&rule_set [1], (size_t) num_associated_rules, sizeof (rule_set [1]), intcmp);
 
-	fprintf (file, _(" associated rule line numbers:"));
+	/* TRANSLATORS: The line numbers, in the flex input, of the rules
+	   that can still match from this state. */
+	fprintf (file, " %s", _("associated rule line numbers:"));
 
 	for (i = 1; i <= num_associated_rules; ++i) {
 		if (i % 8 == 1)
@@ -180,7 +197,7 @@ void dump_associated_rules (FILE *file, int ds)
  * is done to the given file.
  */
 
-void dump_transitions (FILE *file, int state[])
+static void dump_transitions(FILE *file, int state[])
 {
 	int i, ec;
 	int out_char_set[CSIZE];
@@ -190,7 +207,9 @@ void dump_transitions (FILE *file, int state[])
 		out_char_set[i] = state[ec];
 	}
 
-	fprintf (file, _(" out-transitions: "));
+	/* TRANSLATORS: The characters that take the scanner from this state
+	   to another state. */
+	fprintf (file, " %s ", _("out-transitions:"));
 
 	list_character_set (file, out_char_set);
 
@@ -198,7 +217,9 @@ void dump_transitions (FILE *file, int state[])
 	for (i = 0; i < ctrl.csize; ++i)
 		out_char_set[i] = !out_char_set[i];
 
-	fprintf (file, _("\n jam-transitions: EOF "));
+	/* TRANSLATORS: The characters that have no transition from this
+	   state. */
+	fprintf (file, "\n %s EOF ", _("jam-transitions:"));
 
 	list_character_set (file, out_char_set);
 
@@ -226,7 +247,7 @@ void dump_transitions (FILE *file, int state[])
  *  hashval is the hash value for the dfa corresponding to the state set.
  */
 
-int    *epsclosure (int *t, int *ns_addr, int accset[], int *nacc_addr, int *hv_addr)
+static int *epsclosure(int *t, int *ns_addr, int accset[], int *nacc_addr, int *hv_addr)
 {
 	int     stkpos, ns, tsp;
 	int     numstates = *ns_addr, nacc, hashval, transsym, nfaccnum;
@@ -327,8 +348,8 @@ ADD_STATE(state); \
 		if (IS_MARKED (stk[stkpos]))
 			UNMARK_STATE (stk[stkpos]);
 		else
-			flexfatal (_
-				   ("consistency check failed in epsclosure()"));
+			lerr_fatal (_("consistency check failed in %s()"),
+				    "epsclosure");
 	}
 
 	*ns_addr = numstates;
@@ -353,7 +374,8 @@ void increase_max_dfas (void)
 	accsiz = reallocate_integer_array (accsiz, current_max_dfas);
 	dhash = reallocate_integer_array (dhash, current_max_dfas);
 	dss = reallocate_int_ptr_array (dss, current_max_dfas);
-	dfaacc = reallocate_dfaacc_union (dfaacc, current_max_dfas);
+	dfaacc = reallocate_array(dfaacc, current_max_dfas,
+		sizeof(union dfaacc_union));
 
 	if (nultrans)
 		nultrans =
@@ -419,7 +441,7 @@ size_t ntod (void)
 
 	if (env.trace) {
 		dumpnfa (scset[1]);
-		fputs (_("\n\nDFA Dump:\n\n"), stderr);
+		fputs ("\n\nDFA Dump:\n\n", stderr);
 	}
 
 	inittbl ();
@@ -516,9 +538,10 @@ size_t ntod (void)
 			yynxt_data[yynxt_curr++] = 0;
 		}
 
-		dataflush ();
-		if (gentables)
+		if (gentables) {
+			dataflush ();
 			outn ("M4_HOOK_TABLE_CONTINUE");
+		}
 	}
 
 	/* Create the first states. */
@@ -576,7 +599,7 @@ size_t ntod (void)
 		dsize = dfasiz[ds];
 
 		if (env.trace)
-			fprintf (stderr, _("state # %d:\n"), ds);
+			fprintf (stderr, "state # %d:\n", ds);
 
 		sympartition (dset, dsize, symlist, duplist);
 
@@ -695,9 +718,10 @@ size_t ntod (void)
 					state[i] ? state[i] : -ds;
 			}
 
-			dataflush ();
-			if (gentables)
+			if (gentables) {
+				dataflush ();
 				outn ("M4_HOOK_TABLE_CONTINUE");
+			}
 		}
 
 		else if (ctrl.fullspd)
@@ -734,8 +758,7 @@ size_t ntod (void)
 		if (tablesext) {
 			yytbl_data_compress (yynxt_tbl);
 			if (yytbl_data_fwrite (&tableswr, yynxt_tbl) < 0)
-				flexerror (_
-					   ("Could not write yynxt_tbl[][]"));
+				lerr (_("Could not write %s"), "yynxt_tbl[][]");
 		}
 		if (yynxt_tbl) {
 			yytbl_data_destroy (yynxt_tbl);
@@ -776,7 +799,7 @@ size_t ntod (void)
  * On return, the dfa state number is in newds.
  */
 
-int snstods (int sns[], int numstates, int accset[], int nacc, int hashval, int *newds_addr)
+static int snstods(int sns[], int numstates, int accset[], int nacc, int hashval, int *newds_addr)
 {
 	int didsort = 0;
 	int i, j;
@@ -897,7 +920,7 @@ int snstods (int sns[], int numstates, int accset[], int nacc, int hashval, int 
  *				int transsym, int nset[current_max_dfa_size] );
  */
 
-int symfollowset (int ds[], int dsize, int transsym, int nset[])
+static int symfollowset(int ds[], int dsize, int transsym, int nset[])
 {
 	int     ns, tsp, sym, i, j, lenccl, ch, numstates, ccllist;
 
@@ -974,7 +997,7 @@ int symfollowset (int ds[], int dsize, int transsym, int nset[])
  *			int symlist[numecs], int duplist[numecs] );
  */
 
-void sympartition (int ds[], int numstates, int symlist[], int duplist[])
+static void sympartition(int ds[], int numstates, int symlist[], int duplist[])
 {
 	int     tch, i, j, k, ns, dupfwd[CSIZE + 1], lenccl, cclp, ich;
 
@@ -997,8 +1020,8 @@ void sympartition (int ds[], int numstates, int symlist[], int duplist[])
 
 		if (tch != SYM_EPSILON) {
 			if (tch < -lastccl || tch >= ctrl.csize) {
-				flexfatal (_
-					   ("bad transition character detected in sympartition()"));
+				lerr_fatal (_("bad transition character detected in %s()"),
+					    "sympartition");
 			}
 
 			if (tch >= 0) {	/* character transition */

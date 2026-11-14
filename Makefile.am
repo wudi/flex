@@ -38,6 +38,7 @@ dist_doc_DATA = \
 	README.md
 
 EXTRA_DIST = \
+	.githooks/commit-msg \
 	.indent.pro \
 	INSTALL.md \
 	CONTRIBUTING.md
@@ -81,7 +82,8 @@ clean-libfl:
 
 ChangeLog: $(srcdir)/tools/git2cl
 	if [ -d $(srcdir)/.git ] ; then \
-		$(srcdir)/tools/git2cl > $@ \
+		(cd $(srcdir) && LC_ALL=C git log --pretty --numstat --summary) \
+			| $(srcdir)/tools/git2cl > $@ \
 	; fi
 
 indent:
@@ -94,5 +96,12 @@ install-exec-hook:
 lint:
 	shellcheck -f gcc tests/*.sh src/*.sh *.sh
 
+# Is this tree ready to release? Check NEWS and the version, then run
+# distcheck. This fails between releases, when NEWS still has its
+# placeholder header, so it is not part of distcheck or check.
+releasecheck:
+	$(SHELL) $(srcdir)/tools/check-release -d $(srcdir)
+	$(MAKE) $(AM_MAKEFLAGS) distcheck
+
 .PHONY: libfl install-libfl uninstall-libfl clean-libfl \
-	ChangeLog indent lint
+	ChangeLog indent lint releasecheck

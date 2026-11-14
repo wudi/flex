@@ -7,18 +7,38 @@ on:
     - 'v*'
   pull_request:
     branches: [ master ]
+  workflow_call:
+    inputs:
+      image:
+        description: Run in this image instead of the one in .github/ci-image-ref
+        type: string
+        default: ''
 
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
-  build:
+  image:
+    uses: ./.github/workflows/ci-image-ref.yml
+    permissions:
+      contents: read
 
-    runs-on: ubuntu-20.04
+  build:
+    needs: image
+
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [ gcc, clang ]
+    name: build (${{ matrix.cc }})
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cc == 'clang' && 'clang++' || 'g++' }}
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.image || needs.image.outputs.ref }}
 
     steps:
-    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-    - name: apt
-      run: sudo apt-get install gcc autoconf bison gettext autopoint help2man lzip texinfo texlive
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: autogen
       run: ./autogen.sh
     - name: configure
@@ -26,6 +46,8 @@ jobs:
     - name: make
       run: make
     - name: make check
-      run: make check
+      run: make check VERBOSE=1
+    - name: make check-tools
+      run: make -C tools check-tools
     - name: make distcheck
       run: make distcheck

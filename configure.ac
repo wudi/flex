@@ -31,7 +31,7 @@ dnl requirements are provided for information only (no guarantee that the tools
 dnl will work and we may bump requirements with future code changes).
 dnl Uses AC_PATH_PROGS_FEATURE_CHECK. Requires autoconf-2.62 as minimum.
 AC_PREREQ([2.62])
-AC_INIT([the fast lexical analyser generator],[2.6.4],[flex-help@lists.sourceforge.net],[flex])
+AC_INIT([the fast lexical analyser generator],[2.6.12],[flex-help@lists.sourceforge.net],[flex])
 AC_CONFIG_SRCDIR([src/scan.l])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_USE_SYSTEM_EXTENSIONS
@@ -40,7 +40,7 @@ LT_PREREQ([2.2])
 LT_INIT
 dnl Uses dist-lzip. Requires automake-1.11.3 as minimum.
 AM_INIT_AUTOMAKE([1.11.3 -Wno-portability foreign std-options dist-lzip parallel-tests subdir-objects])
-AC_CONFIG_HEADER([src/config.h])
+AC_CONFIG_HEADERS([src/config.h])
 AC_CONFIG_LIBOBJ_DIR([lib])
 AC_CONFIG_MACRO_DIR([m4])
 SHARED_VERSION_INFO="2:0:0"
@@ -56,8 +56,8 @@ dnl as fallback. (autopoint will ignore latter if former is specified.)
 dnl
 dnl Bugs in gettext before 0.14 prevent building flex with it.
 dnl FLEX_GNU_GETTEXT_REAL_REQUIRE_VERSION=0.14
-AM_GNU_GETTEXT_REQUIRE_VERSION([0.19.6])
-AM_GNU_GETTEXT_VERSION([0.19.6])
+AM_GNU_GETTEXT_REQUIRE_VERSION([0.23])
+AM_GNU_GETTEXT_VERSION([0.23])
 AC_PROG_YACC
   AC_MSG_CHECKING(whether $YACC is GNU Bison)
   AS_IF([test -n "$YACC" && $YACC --version 2>&1 | $GREP "GNU Bison" >/dev/null],
@@ -69,6 +69,9 @@ AC_PROG_YACC
   	YACC="\${top_srcdir}/build-aux/missing bison"
     ])
 AM_CONDITIONAL([HAVE_BISON], [test $use_gnu_bison -eq 1])
+dnl AC_PROG_LEX requires an argument in autoconf 2.70, but we cannot
+dnl specify it through AM_PROG_LEX until automake 1.17.
+AC_PROG_LEX([noyywrap])
 AM_PROG_LEX
 AC_PROG_CC
 AX_PROG_CC_FOR_BUILD
@@ -77,6 +80,15 @@ AM_PROG_CC_C_O
 AC_PROG_LN_S
 AC_PROG_AWK
 AC_PROG_INSTALL
+
+AS_IF([test "x${BUILD_OBJEXT-}" = x],
+  [AS_IF([test "$cross_compiling" = no],
+    [BUILD_EXEEXT="$EXEEXT"
+    BUILD_OBJEXT="$OBJEXT"],
+    [BUILD_EXEEXT="${ac_cv_build_exeext-}"
+    BUILD_OBJEXT="${ac_cv_build_objext-}"])])
+AS_IF([test "x${BUILD_OBJEXT-}" = x && test "x${enable_bootstrap-yes}" = xyes],
+  [AC_MSG_ERROR([BUILD_OBJEXT is invalid; please regenerate 'configure' with a newer ax_prog_cc_for_build.m4 (serial 23 or later) or configure with '--disable-bootstrap'])])
 
 pkgconfigdir=${libdir}/pkgconfig
 AC_SUBST(pkgconfigdir)
@@ -196,6 +208,10 @@ AC_CHECK_FUNCS([dup2 memset regcomp strcasecmp strchr strdup strtol], [],
 # reallocarr - NetBSD function. Use reallocarray if not available.
 # reallocarray - OpenBSD function. We have replacement if not available.
 AC_CHECK_FUNCS([pow setlocale reallocarr reallocarray])
+AC_CHECK_DECLS(__func__)
+
+AS_IF([test "$cross_compiling" = yes],
+  [AC_CONFIG_FILES([src/config_for_build.h])])
 
 AC_CONFIG_FILES(
 Makefile
